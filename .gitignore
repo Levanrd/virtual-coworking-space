@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!*.env.example
+output/
+*.log
+.npm-cache/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+backups/

@@ -1,0 +1,70 @@
+name: common-ground-local
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:8080:3001"
+    environment:
+      NODE_ENV: development
+      APP_ORIGIN: http://localhost:8080
+      REQUIRE_EMAIL_VERIFICATION: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: "Common Ground <hello@common-ground.test>"
+      TURN_URLS: "turn:127.0.0.1:3478?transport=udp,turn:127.0.0.1:3478?transport=tcp"
+      TURN_SECRET: ${TURN_SECRET:?Run npm run docker:setup first}
+      RTC_RELAY_ONLY: ${RTC_RELAY_ONLY:-false}
+      MAX_ONLINE_USERS: "20"
+      BACKUP_DIR: /app/backups
+      OPS_TOKEN: ${OPS_TOKEN:-}
+    volumes:
+      - accounts:/app/data
+      - backups:/app/backups
+    depends_on:
+      - mailpit
+      - turn
+    security_opt:
+      - no-new-privileges:true
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_MAX_MESSAGES: "200"
+    security_opt:
+      - no-new-privileges:true
+  turn:
+    image: coturn/coturn:4.18.0
+    restart: unless-stopped
+    command:
+      - --no-tls
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?Run npm run docker:setup first}
+      - --realm=common-ground.local
+      - --external-ip=127.0.0.1
+      - --listening-port=3478
+      - --min-port=45000
+      - --max-port=45100
+      - --user-quota=64
+      - --total-quota=256
+      - --no-multicast-peers
+      # Local-only relay checks; production TURN must deny loopback/private peers.
+      - --allow-loopback-peers
+      - --log-file=stdout
+    ports:
+      - "127.0.0.1:3478:3478/udp"
+      - "127.0.0.1:3478:3478/tcp"
+      - "127.0.0.1:45000-45100:45000-45100/udp"
+volumes:
+  accounts:
+  backups:

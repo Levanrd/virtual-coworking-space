@@ -1,0 +1,105 @@
+# Standalone LAN mode; shares accounts/backups with compose.yaml.
+name: common-ground-local
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+services:
+  app:
+    image: common-ground-local-app
+    build:
+      context: ..
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 25s
+    logging: *logging
+    environment:
+      NODE_ENV: development
+      APP_ORIGIN: https://${LAN_IP:?Run npm run lan:up}:8443
+      TRUST_PROXY: uniquelocal
+      REQUIRE_EMAIL_VERIFICATION: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: "Common Ground <hello@common-ground.test>"
+      TURN_URLS: "turn:${LAN_IP}:3478?transport=udp,turn:${LAN_IP}:3478?transport=tcp"
+      TURN_SECRET: ${TURN_SECRET:?Run npm run docker:setup}
+      # The host is on the same LAN: use its relay without waiting for direct
+      # peer paths that Windows firewalls, mDNS or Wi-Fi isolation may block.
+      RTC_RELAY_ONLY: ${RTC_RELAY_ONLY:-true}
+      MAX_ONLINE_USERS: "20"
+      BACKUP_DIR: /app/backups
+      OPS_TOKEN: ${OPS_TOKEN:-}
+    volumes:
+      - accounts:/app/data
+      - backups:/app/backups
+    depends_on:
+      mailpit:
+        condition: service_started
+      turn:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+  caddy:
+    image: caddy:2.11.2-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      LAN_IP: ${LAN_IP}
+    ports:
+      - "${LAN_IP}:8443:8443"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./Caddyfile.lan:/etc/caddy/Caddyfile:ro
+      - lan-caddy-data:/data
+      - lan-caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    logging: *logging
+    ports: ["127.0.0.1:8025:8025"]
+    environment:
+      MP_MAX_MESSAGES: "200"
+    security_opt: [no-new-privileges:true]
+  turn:
+    image: coturn/coturn:4.18.0
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: [CMD, turnutils_stunclient, -p, "3478", "127.0.0.1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      start_interval: 2s
+      retries: 3
+    command:
+      - --no-tls
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=common-ground.lan
+      - --external-ip=${LAN_IP}
+      - --listening-port=3478
+      - --min-port=45000
+      - --max-port=45100
+      - --user-quota=64
+      - --total-quota=256
+      - --no-multicast-peers
+      # Private peers are needed for same-Wi-Fi calls; loopback stays denied.
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=::1
+      - --log-file=stdout
+    ports:
+      - "${LAN_IP}:3478:3478/udp"
+      - "${LAN_IP}:3478:3478/tcp"
+      - "${LAN_IP}:45000-45100:45000-45100/udp"
+    security_opt: [no-new-privileges:true]
+volumes:
+  accounts:
+  backups:
+  lan-caddy-data:
+  lan-caddy-config:

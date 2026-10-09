@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.env*
+data
+output
+tests
+*.log
+.codex
+.agents
+backups

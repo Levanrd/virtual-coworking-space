@@ -1,0 +1,106 @@
+# Standalone production template. Do not combine with the local compose.yaml.
+name: common-ground
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+services:
+  app:
+    image: common-ground:${CG_IMAGE_TAG:-friends-beta}
+    build:
+      context: ..
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 25s
+    cpus: 2
+    mem_limit: 1g
+    pids_limit: 128
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    logging: *logging
+    env_file: ../.env.production
+    environment:
+      NODE_ENV: production
+      REQUIRE_EMAIL_VERIFICATION: "true"
+      TRUST_PROXY: uniquelocal
+    volumes:
+      - accounts:/app/data
+      - backups:/app/backups
+    security_opt:
+      - no-new-privileges:true
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+  turn:
+    image: coturn/coturn:4.18.0
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *logging
+    command:
+      - --no-tls
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET}
+      - --realm=${APP_DOMAIN:?Set APP_DOMAIN}
+      - --external-ip=${PUBLIC_IP:?Set your public IPv4 address}
+      - --listening-port=3478
+      - --min-port=45000
+      - --max-port=45255
+      - --user-quota=16
+      - --total-quota=256
+      - --no-multicast-peers
+      - --no-cli
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=::1
+      - --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --log-file=stdout
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "45000-45255:45000-45255/udp"
+    security_opt:
+      - no-new-privileges:true
+  monitor:
+    image: common-ground:${CG_IMAGE_TAG:-friends-beta}
+    restart: unless-stopped
+    command: [node, scripts/monitor.mjs]
+    environment:
+      OPS_ORIGIN: http://app:3001
+      OPS_TOKEN: ${OPS_TOKEN:?Set OPS_TOKEN}
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 128m
+    logging: *logging
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  accounts:
+  backups:
+  caddy-data:
+  caddy-config:
