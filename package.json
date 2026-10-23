@@ -30,7 +30,7 @@
     "express": "^5.1.0",
     "nodemailer": "^10.0.16",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react-dom": "^19.3.1",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "three": "^0.180.0"
